@@ -18,13 +18,6 @@ import logging
 import re
 from typing import Optional
 
-try:
-    import riegeli
-except ImportError:
-    riegeli = None
-from google.protobuf import text_format
-
-from beancount import loader
 from beancount.parser import parser
 from beancount.parser import printer
 from beancount.core import data
@@ -37,14 +30,7 @@ from beancount.ccore import date_pb2 as db
 from beancount.ccore import number_pb2 as nb
 from beancount.cparser import inter_pb2 as qb
 from beancount.cparser import options_pb2 as ob
-
-USE_PYEXT_API = True
-if USE_PYEXT_API:
-    from experiments.v3.protos import expose_protos as ep
-else:
-    from beancount.cparser import extmodule
 from beancount.parser import printer
-
 
 def copy_decimal(din: Decimal, dout: nb.Number):
     dout.exact = str(din)
@@ -257,17 +243,11 @@ def convert_Pad(entry: data.Pad) -> pb.Directive:
 
 
 def export_v2_data(filename: str, output_filename: str, num_directives: Optional[int]):
-    if riegeli is None or output_filename.endswith(".pbtxt"):
-        output = open(output_filename, "w")
-        writer = None
+    output = open(output_filename, "w")
+    writer = None
 
-        def write(message):
-            print(message, file=output)
-
-    else:
-        output = open(output_filename, "wb")
-        writer = riegeli.RecordWriter(output)
-        write = writer.write_message
+    def write(message):
+        print(message, file=output)
 
     # entries, errors, options_map = loader.load_file(filename)
     entries, errors, options_map = parser.parse_file(filename)
@@ -316,38 +296,6 @@ def export_v2_data(filename: str, output_filename: str, num_directives: Optional
         writer.close()
     output.close()
 
-if USE_PYEXT_API:
-    pass # TODO(blais):
-else:
-    _SORT_ORDER = {
-        extmodule.BodyCase.kOpen: -2,
-        extmodule.BodyCase.kBalance: -1,
-        extmodule.BodyCase.kDocument: 1,
-        extmodule.BodyCase.kClose: 2,
-    }
-
-
-def entry_sortkey_v3(dir: pb.Directive):
-    type_order = _SORT_ORDER.get(extmodule.GetDirectiveType(dir), 0)
-    return (dir.date, type_order, dir.location.lineno)
-
-
-def export_v3_data(filename: str, output_filename: str, num_directives: Optional[int]):
-    ledger = extmodule.parse(filename)
-    directives = sorted(ledger.directives, key=entry_sortkey_v3)
-    with open(output_filename, "w") as outfile:
-        pr = functools.partial(print, file=outfile)
-        if num_directives:
-            directives = itertools.islice(directives, num_directives)
-        for directive in directives:
-            extmodule.DowngradeToV2(directive)
-            pr("#---")
-            pr("# {}".format(directive.location.lineno))
-            pr("#")
-            pr(text_format.MessageToString(directive, as_utf=True))
-            pr()
-
-
 def main():
     logging.basicConfig(level=logging.INFO, format="%(levelname)-8s: %(message)s")
     parser = argparse.ArgumentParser(description=__doc__.strip())
@@ -356,24 +304,17 @@ def main():
     parser.add_argument(
         "output",
         help=(
-            "Output filename (if .pbtxt, output as text-formatted protos. "
-            "Otherwise write to a riegeli file."
+            "Output filename"
         ),
     )
-
     parser.add_argument(
         "--num_directives", type=int, default=None, help="Number of entries to print"
     )
 
     args = parser.parse_args()
 
-    filename_v2 = args.output + "_v2.pbtxt"
-    export_v2_data(args.filename, filename_v2, args.num_directives)
-    logging.info("Wrote %s", filename_v2)
-    filename_v3 = args.output + "_v3.pbtxt"
-    export_v3_data(args.filename, filename_v3, args.num_directives)
-    logging.info("Wrote %s", filename_v3)
-
+    export_v2_data(args.filename, args.output, args.num_directives)
+    logging.info("Wrote %s", args.output)
 
 if __name__ == "__main__":
     main()
