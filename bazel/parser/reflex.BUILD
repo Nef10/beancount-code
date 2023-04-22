@@ -13,10 +13,17 @@ configure_make(
         "reflex",
     ],
     out_static_libs = ["libreflex.a"],
-    env = {
-        # Use PIC so we can link Python extension modules to this.
-        "CXXFLAGS": "-fPIC",
-    },
+    env = select({
+        "@platforms//os:macos": {
+            "AR": "",
+            # Use PIC so we can link Python extension modules to this.
+            "CXXFLAGS": "-fPIC",
+        },
+        "//conditions:default": {
+            # Use PIC so we can link Python extension modules to this.
+            "CXXFLAGS": "-fPIC",
+        },
+    }),
     lib_source = "@reflex//:all",
 )
 
